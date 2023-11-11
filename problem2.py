@@ -13,7 +13,8 @@ def generate_problem(size: int, max_num: int = 10, deletion_rate: float = 1/3):
     for i in range(size):
         row_sum[i] = (np.matmul(matrix[i], np.transpose(solution[i])))
         col_sum[i] = (np.matmul(matrix[:,i], np.transpose(solution[:,i])))
-    return solution.reshape(1,size ** 2)[0]
+    solution = solution.reshape(1,size ** 2)[0]
+    return matrix, row_sum, col_sum
 
 def generate_random_solution(size: int, pop):
     population = []
@@ -21,31 +22,39 @@ def generate_random_solution(size: int, pop):
         population.append(random.choices([0, 1], weights=[0.5, 0.5], k=size**2))
     return population
 
-def fitness_binary(candidate: list, solution: list):
-    for i in range(len(candidate)):
-        if candidate[i] != solution[i]:
+def fitness_binary(candidate: list, matrix, row_sum, col_sum):
+    size = matrix.shape[0]
+    candidate = np.array(candidate).reshape(size,size)
+    for i in range(size):
+        if row_sum[i] != np.matmul(matrix[i], np.transpose(candidate[i])):
+            return 0
+        if col_sum[i] != np.matmul(matrix[:, i], np.transpose(candidate[:, i])):
             return 0
     return 1
 
-def fitness_prop(candidate: list, solution: list):
-    fittotal = 0
-    for i in range(len(candidate)):
-        if candidate[i] == solution[i]:
-            fittotal += 1
-    return fittotal/len(candidate)
+def fitness_prop(candidate: list, matrix, row_sum, col_sum):
+    size = matrix.shape[0]
+    candidate = np.array(candidate).reshape(size,size)
+    correct = 0
+    for i in range(size):
+        if row_sum[i] == np.matmul(matrix[i], np.transpose(candidate[i])):
+            correct += 1
+        if col_sum[i] == np.matmul(matrix[:, i], np.transpose(candidate[:, i])):
+            correct += 1
+    return correct/(2*size)
 
-def ranking_pop(population, fitness_type, solution):
+def ranking_pop(population, fitness_type, matrix, row_sum, col_sum):
     if fitness_type != "fitness_prop" or "fitness_binary":
         assert "fitness type must be either fitness_prop or fitness_binary!"
     fitnesses = {}
     sum_fit = 0.0
     if fitness_type == "fitness_prop":
         for i in range(len(population)):
-            fitnesses[i] = fitness_prop(population[i],solution)
+            fitnesses[i] = fitness_prop(population[i],matrix, row_sum, col_sum)
             sum_fit += fitnesses[i]
     if fitness_type == "fitness_binary":
         for i in range(len(population)):
-            fitnesses[i] = fitness_binary(population[i],solution)
+            fitnesses[i] = fitness_binary(population[i],matrix, row_sum, col_sum)
             sum_fit += fitnesses[i]
     return sorted(fitnesses.items(), key=operator.itemgetter(1),reverse=True), sum_fit
 
@@ -59,7 +68,10 @@ def selection(ranked, tot, elitism):
         if i < elitism:
             elite_members.append(x)
         probabilities[x] = y
-    probabilities=probabilities/np.sum(probabilities)
+    if np.sum(probabilities) == 0:
+        probabilities = np.full(len(ranked), 1/(len(ranked)))
+    else:
+        probabilities=probabilities/np.sum(probabilities)
     selected_members = np.random.choice(members, size-elitism, p=probabilities)
     return selected_members, elite_members
 
@@ -120,32 +132,70 @@ def mutation_over_pop(population, prob_mut):
         mutated_pop.append(mutated_chromo)
     return mutated_pop
 
-def new_generation(current_gen, elitism, prob_mut, solution):
-    rank, tot = ranking_pop(current_gen, "fitness_prop", solution)
+def new_generation(current_gen, elitism, prob_mut, matrix, row_sum, col_sum,fitness_type):
+    rank, tot = ranking_pop(current_gen, fitness_type, matrix, row_sum, col_sum)
     selected_members, elite_members = selection(rank, tot, elitism)
     mates, elites = mating_pool(current_gen, selected_members, elite_members)
     children = new_population(mates, elites)
     next_gen = mutation_over_pop(children, prob_mut)
     return next_gen
 
-def genetic_algorithm(size, population, elitism, prob_mut, generations):
-    solution= generate_problem(size)
+def genetic_algorithm(size, population, elitism, prob_mut, generations, fitness_type):
+    matrix, row_sum, col_sum = generate_problem(size)
     pop = generate_random_solution(size,population)
-    #fitness_type = "fitness_binary"
-    fitness_type = "fitness_prop"
-    ranked, tot = ranking_pop(pop, fitness_type, solution)
-    print("Initial best fitness: {}".format(ranked[0][1]))
+    ranked, tot = ranking_pop(pop, fitness_type, matrix, row_sum, col_sum)
+    #print(ranked)
+    #print("Initial best fitness: {}".format(ranked[0][1]))
 
     for i in range(generations):
-        pop = new_generation(pop, elitism, prob_mut,solution)
-        ranked, tot = ranking_pop(pop, fitness_type, solution)
+        pop = new_generation(pop, elitism, prob_mut,matrix, row_sum, col_sum,fitness_type)
+        ranked, tot = ranking_pop(pop, fitness_type, matrix, row_sum, col_sum)
         if ranked[0][1] == 1:
             break;
 
-    ranked, tot = ranking_pop(pop, fitness_type, solution)
-    print("Final best fitness: {}".format(ranked[0][1]))
-
+    ranked, tot = ranking_pop(pop, fitness_type, matrix, row_sum, col_sum)
+    #print("Final best fitness: {}".format(ranked[0][1]))
     return i
 
-zz=genetic_algorithm(4, 50, 1, 0.01, 1000)
-print("run time: ",zz)
+# runtimes = []
+# txt = "The average runtime of {size} x {size} sumplete problem using {fitness_type} is {runtime}."
+# sizes = [3,4,5,6]
+# for j in sizes:
+#     for i in range(100):
+#         #zz = genetic_algorithm(j, 50, 1, 0.01, 10000, "fitness_binary")
+#         zz = genetic_algorithm(j, 50, 1, 0.01, 10000, "fitness_prop")
+#         runtimes.append(zz)
+#     #print(txt.format(size=j, fitness_type="fitness_binary", runtime=np.average(runtimes)))
+#     print(txt.format(size=j, fitness_type="fitness_prop", runtime="{:.3f}".format(np.average(runtimes))))
+
+runtimes = []
+times = []
+txt = "The average runtime of 4x4 sumplete problem using {fitness_type} is {runtime}."
+populations = [5, 10, 20, 50, 100]
+elitism = [0,1,2,3,4,5,6,7,8,9,10,20]
+mutation_rate = [0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2]
+for j in mutation_rate:
+    for i in range(100):
+        #zz = genetic_algorithm(j, 50, 1, 0.01, 10000, "fitness_binary")
+        zz = genetic_algorithm(4, 50, 1, j, 10000, "fitness_prop")
+        runtimes.append(zz)
+    times.append(float("{:.3f}".format(np.average(runtimes))))
+print(times)
+fig_size = (8, 4) # Set figure size in inches (width, height)
+fig = plt.figure(figsize=fig_size) # Create a new figure object
+ax = fig.add_subplot(1, 1, 1) # Add a single axes to the figure
+# Plot lines giving each a label for the legend and setting line width to 2
+ax.plot(mutation_rate, times)
+for i, j in zip(mutation_rate,times):
+    ax.annotate(str(j),xy = (i, j))
+#bars = ax.bar(mutation_rate, times)
+#ax.bar_label(bars)
+ax.set_xlabel('mutation_rate', fontsize=12)
+ax.set_ylabel('Runtime', fontsize=12)
+ax.grid('on') # Turn axes grid on
+fig.tight_layout() # This minimises whitespace around the axes.
+fig.savefig('mutation_rate.png') # Save figure to current directory in png format
+plt.show()
+
+
+
